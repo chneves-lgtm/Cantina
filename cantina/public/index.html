@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cantina Unifor</title>
+<style>
+  :root { --bg:#f6f1e7; --ink:#2a1f1a; --card:#fffdf8; --line:#e0d6c3; --accent:#0b5d4b; --danger:#b3361f; --muted:#7a6d62; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:Georgia,'Times New Roman',serif; background:var(--bg); color:var(--ink); line-height:1.5; }
+  header { background:var(--accent); color:#fff; padding:14px 24px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+  header h1 { margin:0; font-size:1.4rem; }
+  main { max-width:860px; margin:24px auto; padding:0 16px; }
+  nav { display:flex; gap:8px; margin-bottom:18px; }
+  button { font:inherit; cursor:pointer; border:1px solid var(--accent); background:var(--accent); color:#fff; padding:7px 14px; border-radius:6px; }
+  button.ghost { background:transparent; color:var(--accent); }
+  header button { background:transparent; border-color:#fff; }
+  button.danger { background:var(--danger); border-color:var(--danger); }
+  button:focus-visible, input:focus-visible { outline:3px solid #e8a33d; outline-offset:2px; }
+  input { font:inherit; padding:7px 10px; border:1px solid var(--line); border-radius:6px; background:#fff; width:100%; }
+  .row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px dashed var(--line); flex-wrap:wrap; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px 20px; margin-bottom:18px; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .msg { padding:10px 14px; border-radius:6px; margin-bottom:14px; }
+  .msg.err { background:#f9dcd5; color:var(--danger); } .msg.ok { background:#d8eee6; color:var(--accent); }
+  .qty { display:flex; align-items:center; gap:8px; } .qty button { padding:2px 10px; }
+  .form { display:grid; grid-template-columns:2fr 1fr 1fr auto; gap:8px; align-items:end; }
+  label { font-size:.85rem; color:var(--muted); display:block; }
+  .cancelado { text-decoration:line-through; color:var(--muted); }
+  @media (max-width:600px){ .form{grid-template-columns:1fr;} }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+const money = (n) => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+async function api(path, { method = 'GET', body } = {}, token) {
+  const r = await fetch('/api' + path, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || 'Erro inesperado');
+  return data;
+}
+
+function Login({ onLogin, flash }) {
+  const [mode, setMode] = useState('login');
+  const [f, setF] = useState({ name: '', email: '', password: '' });
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const submit = async () => {
+    try {
+      if (mode === 'register') {
+        await api('/auth/register', { method: 'POST', body: f });
+        flash('ok', 'Cadastro feito. Entre com seu e-mail e senha.');
+        setMode('login');
+      } else {
+        onLogin(await api('/auth/login', { method: 'POST', body: f }));
+      }
+    } catch (e) { flash('err', e.message); }
+  };
+  return (
+    <div className="panel" style={{ maxWidth: 380, margin: '0 auto' }}>
+      <h2>{mode === 'login' ? 'Entrar' : 'Criar conta'}</h2>
+      {mode === 'register' && <><label>Nome</label><input value={f.name} onChange={set('name')} /></>}
+      <label>E-mail</label><input value={f.email} onChange={set('email')} />
+      <label>Senha</label><input type="password" value={f.password} onChange={set('password')} />
+      <p><button onClick={submit}>{mode === 'login' ? 'Entrar' : 'Criar conta'}</button>{' '}
+        <button className="ghost" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>
+          {mode === 'login' ? 'Criar conta' : 'Já tenho conta'}</button></p>
+      <p className="muted">Admin de teste: admin@cantina.com / admin123</p>
+    </div>
+  );
+}
+
+function Menu({ token, refreshUser, flash }) {
+  const [products, setProducts] = useState([]);
+  const [cart, setCart] = useState({});
+  const load = useCallback(() => api('/products', {}, token).then(setProducts).catch((e) => flash('err', e.message)), [token]);
+  useEffect(() => { load(); }, [load]);
+  const change = (id, d) => setCart((c) => ({ ...c, [id]: Math.max(0, (c[id] || 0) + d) }));
+  const total = products.reduce((s, p) => s + p.price * (cart[p.id] || 0), 0);
+  const buy = async () => {
+    const items = Object.entries(cart).filter(([, q]) => q > 0).map(([productId, quantity]) => ({ productId: Number(productId), quantity }));
+    try {
+      await api('/orders', { method: 'POST', body: { items } }, token);
+      flash('ok', 'Compra realizada.'); setCart({}); load(); refreshUser();
+    } catch (e) { flash('err', e.message); }
+  };
+  return (
+    <div className="panel">
+      {products.map((p) => (
+        <div className="row" key={p.id}>
+          <div><strong>{p.name}</strong><div className="muted">{money(p.price)} · {p.stock} em estoque</div></div>
+          <div className="qty">
+            <button className="ghost" onClick={() => change(p.id, -1)} aria-label={'Menos ' + p.name}>−</button>
+            <span>{cart[p.id] || 0}</span>
+            <button className="ghost" onClick={() => change(p.id, 1)} aria-label={'Mais ' + p.name}>+</button>
+          </div>
+        </div>
+      ))}
+      <p><strong>Total: {money(total)}</strong>{' '}<button disabled={!total} onClick={buy}>Finalizar compra</button></p>
+    </div>
+  );
+}
+
+function Orders({ token, user, refreshUser, flash }) {
+  const [orders, setOrders] = useState([]);
+  const load = useCallback(() => api('/orders', {}, token).then(setOrders), [token]);
+  useEffect(() => { load(); }, [load]);
+  const cancel = async (id) => {
+    try { await api(`/orders/${id}/cancel`, { method: 'POST' }, token); flash('ok', 'Pedido cancelado e valor estornado.'); load(); refreshUser(); }
+    catch (e) { flash('err', e.message); }
+  };
+  if (!orders.length) return <div className="panel muted">Nenhum pedido ainda.</div>;
+  return (
+    <div className="panel">
+      {orders.map((o) => (
+        <div className="row" key={o.id}>
+          <div className={o.status === 'cancelado' ? 'cancelado' : ''}>
+            <strong>Pedido #{o.id}</strong>{user.role === 'admin' && <> — {o.user_name}</>} — {money(o.total)}
+            <div className="muted">{o.items.map((i) => `${i.quantity}x ${i.name}`).join(', ')} · {o.created_at} · {o.status}</div>
+          </div>
+          {o.status === 'pago' && <button className="danger" onClick={() => cancel(o.id)}>Cancelar</button>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Products({ token, flash }) {
+  const [products, setProducts] = useState([]);
+  const empty = { id: null, name: '', price: '', stock: '' };
+  const [f, setF] = useState(empty);
+  const load = useCallback(() => api('/products', {}, token).then(setProducts), [token]);
+  useEffect(() => { load(); }, [load]);
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const save = async () => {
+    try {
+      const body = { name: f.name, price: f.price, stock: f.stock };
+      if (f.id) await api('/products/' + f.id, { method: 'PUT', body }, token);
+      else await api('/products', { method: 'POST', body }, token);
+      flash('ok', f.id ? 'Produto atualizado.' : 'Produto cadastrado.'); setF(empty); load();
+    } catch (e) { flash('err', e.message); }
+  };
+  const remove = async (id) => {
+    try { await api('/products/' + id, { method: 'DELETE' }, token); flash('ok', 'Produto removido.'); load(); }
+    catch (e) { flash('err', e.message); }
+  };
+  return (
+    <>
+      <div className="panel form">
+        <div><label>Nome</label><input value={f.name} onChange={set('name')} /></div>
+        <div><label>Preço</label><input type="number" step="0.01" value={f.price} onChange={set('price')} /></div>
+        <div><label>Estoque</label><input type="number" value={f.stock} onChange={set('stock')} /></div>
+        <button onClick={save}>{f.id ? 'Salvar alterações' : 'Cadastrar produto'}</button>
+      </div>
+      <div className="panel">
+        {products.map((p) => (
+          <div className="row" key={p.id}>
+            <div><strong>{p.name}</strong><div className="muted">{money(p.price)} · {p.stock} em estoque</div></div>
+            <div><button className="ghost" onClick={() => setF({ ...p })}>Editar</button>{' '}
+              <button className="danger" onClick={() => remove(p.id)}>Remover</button></div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function App() {
+  const [session, setSession] = useState(() => JSON.parse(localStorage.getItem('session') || 'null'));
+  const [tab, setTab] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 4000); };
+  const login = (s) => { localStorage.setItem('session', JSON.stringify(s)); setSession(s); setTab(s.user.role === 'admin' ? 'produtos' : 'cardapio'); };
+  const logout = () => { localStorage.removeItem('session'); setSession(null); };
+  const refreshUser = () => api('/me', {}, session.token).then((user) => {
+    const s = { ...session, user }; localStorage.setItem('session', JSON.stringify(s)); setSession(s);
+  }).catch(logout);
+  const recharge = async () => {
+    const amount = prompt('Valor da recarga (R$):');
+    if (!amount) return;
+    try { await api('/me/credit', { method: 'POST', body: { amount: Number(amount.replace(',', '.')) } }, session.token); flash('ok', 'Saldo recarregado.'); refreshUser(); }
+    catch (e) { flash('err', e.message); }
+  };
+
+  const user = session && session.user;
+  const tabs = user ? (user.role === 'admin' ? [['produtos', 'Produtos'], ['pedidos', 'Todos os pedidos']] : [['cardapio', 'Cardápio'], ['pedidos', 'Meus pedidos']]) : [];
+  const current = tab || (tabs[0] && tabs[0][0]);
+
+  return (
+    <>
+      <header>
+        <h1>Cantina Unifor</h1>
+        {user && <div>{user.name} ({user.role}){user.role === 'cliente' && <> · Saldo: {money(user.balance)} <button onClick={recharge}>Recarregar</button></>} <button onClick={logout}>Sair</button></div>}
+      </header>
+      <main>
+        {msg && <div className={'msg ' + msg.type} role="status">{msg.text}</div>}
+        {!user ? <Login onLogin={login} flash={flash} /> : <>
+          <nav>{tabs.map(([k, label]) => <button key={k} className={current === k ? '' : 'ghost'} onClick={() => setTab(k)}>{label}</button>)}</nav>
+          {current === 'cardapio' && <Menu token={session.token} refreshUser={refreshUser} flash={flash} />}
+          {current === 'pedidos' && <Orders token={session.token} user={user} refreshUser={refreshUser} flash={flash} />}
+          {current === 'produtos' && <Products token={session.token} flash={flash} />}
+        </>}
+      </main>
+    </>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
