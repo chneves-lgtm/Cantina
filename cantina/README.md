@@ -54,3 +54,7 @@ src/server.js  inicialização do servidor
 public/        frontend React
 tests/         testes formais
 ```
+
+Segue Abaixo evidência do app em deploy no Render
+<img width="1590" height="891" alt="image" src="https://github.com/user-attachments/assets/5f91eaf1-2521-4b1e-93bb-5ccc36e8d693" />
+
